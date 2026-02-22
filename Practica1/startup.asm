@@ -30,13 +30,20 @@
 ;	-> 1 | 0	-> 1
 ;	-> 1 | 1	-> 0
 
-[org 0x7c00]
+ORG 0x7c00
+BITS 16
+
+SEGMENTO_DE_CODIGO		EQU		gdt_code - GdtInicio		; CS
+SEGMENTO_DE_DATOS		EQU		gdt_data - GdtInicio		; DS
 
 ; FUNCIÓN PRINCIPAL
 start:
-	; Deshabilitar interrupciones (Clear Interrupts)
+	jmp main
+	
+main:
+; Deshabilitar interrupciones (Clear Interrupts)
 	cli
-	; Limpiar el registro ax (por si hay basura) <- básicamente, que ax sea 0
+	; Limpiar el registro <- básicamente, que ax sea 0
 	xor ax, ax
 
 	; Inicializar la pila
@@ -49,21 +56,70 @@ start:
 
 	; Habilitar las interrupciones de nuevo (Set Interrupts)
 	sti
-	
-	jmp main
-	
-main:
 	; Mensaje de bienvenida
-	mov si, bienvenida_msg		; Cargar el mensaje de bienvenida
-	call PrintString
+	;mov si, bienvenida_msg		; Cargar el mensaje de bienvenida
+	;call PrintString
 
 	; PCI
 	
-	call PciReadConfigurationWord
+	;call PciReadConfigurationWord
+
+	; Empezar a transicionar a modo protegido
+	call HabilitarModoProtegido
+
+HabilitarModoProtegido:
+	cli
+	call CargarGDT
+	mov ebx, cr0
+	or ebx, PE_BIT	; Activar el PE_BIT (1)
+	mov cr0, ebx
+	jmp dword SEGMENTO_DE_CODIGO:InicioDeModoProtegido		; Esto se le conoce como un far jump
 	
-	; Entrar en un bucle infinito
-	jmp $
+GdtInicio:
+gdt_null:
+	dd 0
+	dd 0
 	
+; Estructura de GDT
+
+; struct gdt {
+; 	uint16_t limite_primeros_0_15_bits;
+; 	uint16_t base_primeros_o_15_bits;
+; 	uint8_t  base_16_23_bits;
+;	uint8_t  byte_de_acceso;
+;	uint8_t  flags;
+;   uint8_t  base_23_31_bits;
+; };
+	
+; Offset 0x0008
+gdt_code:			; CS (Segmento de Código <- aquí residen las instrucciones binarias que el procesador ejecutará (código))
+	; En total aquí hay 32 bits, debido a que estamos en modo protegido y el modo de operación aquí son 32 bits (256 bytes), que se usan en este segmento (0-31)
+	dw 0xFFFF		; Límite del segmento primeros 0-15 bits (FFFFH)
+	dw 0			; Base del segmento primeros 0-15 bits
+	db 0			; Base del segmento 16-23 bits
+	db 0x9a			; Byte de acceso del segmento (Access byte)
+	db 11001111b	; Flags de 4 bits altos y 4 bits bajos (en total 8 bits <- 1 byte)
+	db 0			; Base del segmento 23-31 bits
+
+; Offset 0x0010
+gdt_data:			; DS, SS, ES, FS, GS
+	; En total aquí hay 32 bits, debido a que estamos en modo protegido y el modo de operación aquí son 32 bits (256 bytes), que se usan en este segmento (0-31)
+	dw 0xFFFF		; Límite del segmento primeros 0-15 bits
+	dw 0			; Base del segmento primeros 0-15 bits
+	db 0			; Base del segmento 16-23 bits
+	db 0x92			; Byte de acceso del segmento (Access byte)
+	db 11001111b	; Flags de 4 bits altos y 4 bits bajos (en total 8 bits <- 1 byte)
+	db 0			; Base del segmento 23-31 bits
+
+GdtFinal:
+
+DescriptorGdt:
+	dw GdtFinal - GdtInicio - 1
+	dd GdtInicio
+
+CargarGDT:
+	lgdt [DescriptorGdt]		; Cargar la GDT
+
 PrintString:
 	mov ah, 0x0E
 	xor bh, bh	; Limpiar el atributo de página para que no haya basura
@@ -105,18 +161,80 @@ PciReadConfigurationWord:
 	
 	ret
 	
+	
+	
+	
+	
 successfull:
 	mov si, pci_config_word_success_msg
 	call PrintString
 	ret
+	
+	
+	
 	
 bad_register_number:
 	mov si, pci_config_word_bad_msg
 	call PrintString
 	ret
 	
-; PCI MACROS
+; Modo protegido
+[bits 32]
 
+RestaurarRegistrosDeSegmento:
+	; Ya estamos en modo protegido (32 bits)
+	mov ax, SEGMENTO_DE_DATOS
+	mov ds, ax
+	mov ss, ax
+	mov es, ax
+	mov gs, ax
+	mov fs, ax
+	ret
+	
+HabilitarLineaA20:
+	in al, 0x92
+	or al, 2
+	out 0x92, al
+
+InicioDeModoProtegido:
+	; Felicidades, si me sigues leyendo, ya hemos transicionado de modo real a modo protegido (de 16 bits a 32 bits)
+	call RestaurarRegistrosDeSegmento
+	; call HabilitarLineaA20
+
+	; Limpiar la pantalla
+    mov edi, 0xB8000
+    mov ecx, 2000
+    mov ax, 0x0720          ; ' ' (espacio) con atributo gris sobre negro
+
+.clear_loop:
+    mov [edi], ax
+    add edi, 2
+    loop .clear_loop
+
+    mov edi, 0xB8000
+    mov ah, 0x0F
+
+	mov al, 'H'
+	mov [edi], ax
+	add edi, 2
+	
+	mov al, 'O'
+	mov [edi], ax
+	add edi, 2
+	
+	mov al, 'L'
+	mov [edi], ax
+	add edi, 2
+	
+	mov al, 'A'
+	mov [edi], ax
+	add edi, 2
+
+.hang:
+    jmp .hang
+
+
+; PCI
 PCI_FUNCTION_ID			EQU		0xB1 ; (B1h)
 READ_CONFIG_WORD		EQU		0x09 ; (09h)
 SUCCESSFULL				EQU		0x00 ; (0)
@@ -127,10 +245,16 @@ BAD_REGISTER_NUMBER		EQU		0x87 ; (87h)
 SET_FAILED				EQU		0x88 ; (88h)
 BUFFER_TOO_SMALL		EQU		0x89 ; (89h)
 
+; Modo protegido
+PE_BIT					EQU		1	 ; (1)
+
+; Mensajes
 pci_config_word_success_msg: db 'PciConfigReadWord: EXITO', 0
 pci_config_word_bad_msg:	 db 'PciConfigReadWord: FALLO', 0
 
-bienvenida_msg:		db	'WordOS ARRANCANDO CON EXITO', 0x0a, 0x0d, 0
+;bienvenida_msg:		db	'WordOS ARRANCANDO CON EXITO', 0x0a, 0x0d, 0
+
+
 
 times 510 - ($ - $$) db 0 ; Dejamos 2 bytes de espacio para la firma de arranque (0xAA55)
 dw 0xAA55
