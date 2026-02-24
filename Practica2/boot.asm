@@ -3,11 +3,11 @@ BITS 16
 
 PE_BIT				EQU		1
 
-; (Sección de código - Inicio de la GDT)
-SEGMENTO_DE_CODIGO		EQU		GdtCodigo - GdtInicio
+; Offset 0x08 = Segmento de Código (CS)
+SELECTOR_DE_CODIGO		EQU		0x08
 
-; (Sección de datos - Inicio de la GDT)
-SEGMENTO_DE_DATOS		EQU		GdtDatos - GdtInicio
+; Offset 0x10 = Segmento de Datos (DS)
+SELECTOR_DE_DATOS		EQU		0x10
 
 start:
 	CLI
@@ -63,14 +63,14 @@ HabilitarModoProtegido:
 	MOV		EBX, CR0	; Mover a ebx el registro cr0
 	OR		EBX, PE_BIT	; Perforar el PE_BIT (1)
 	MOV		CR0, EBX	; Mover el resultado de ebx a la perforación del bit
-	JMP DWORD	SEGMENTO_DE_CODIGO:Entrada32	; Hacer un far jump (salto largo) | Para saltar al código de 32 bits
+	JMP DWORD	SELECTOR_DE_CODIGO:Entrada32	; Hacer un far jump (salto largo) | Para saltar al código de 32 bits
 
 
 ; A partir de ahora, solo se ejecutará código de 32 bits en modo protegido
 BITS 32
 
 RestaurarSegmentos:
-	MOV	AX, SEGMENTO_DE_DATOS
+	MOV	AX, SELECTOR_DE_DATOS
 	MOV	DS, AX
 	MOV	ES, AX
 	MOV	SS, AX
@@ -108,7 +108,7 @@ Entrada32:
 .hang:
 	jmp .hang
 
-mensaje: db 'HOLA', 0
+mensaje: db 'SOY UN GENIO TOTAL, NADIE PUEDE SUPERARME, O ESO CREO', 0
 
 TIMES	510 - ($-$$) db 0
 DW	0xAA55
