@@ -108,7 +108,7 @@ Entrada32:
 .hang:
 	jmp .hang
 
-mensaje: db 'ODIO A MI PADRE, ES UN HIJO DE PUTA, EN SERIO', 0
+mensaje: db 'HOLA', 0
 
 TIMES	510 - ($-$$) db 0
 DW	0xAA55
